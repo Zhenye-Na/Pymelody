@@ -1,7 +1,7 @@
 # stat578-project
 TBA
 reference 
-
+```
 @INPROCEEDINGS{Bertin-Mahieux2011,
   author = {Thierry Bertin-Mahieux and Daniel P.W. Ellis and Brian Whitman and Paul Lamere},
   title = {The Million Song Dataset},
@@ -11,3 +11,4 @@ reference
   owner = {thierry},
   timestamp = {2010.03.07}
 }
+```
