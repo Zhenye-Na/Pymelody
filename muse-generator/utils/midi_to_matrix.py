@@ -14,7 +14,15 @@ span = upperBound - lowerBound
 
 
 def midiToNoteStateMatrix(midifile, squash=True, span=span):
-    """From MIDI to Matrix."""
+    """From MIDI to Matrix.
+
+    Args:
+        midifile (string): midi file path
+        span (int): range of midi notes
+
+    Returns:
+        statematrix (np.array): matrix representation of midi file
+    """
     pattern = midi.read_midifile(midifile)
 
     timeleft = [track[0].tick for track in pattern]
@@ -55,7 +63,6 @@ def midiToNoteStateMatrix(midifile, squash=True, span=span):
                     if evt.numerator not in (2, 4):
                         # We don't want to worry about non-4 time signatures. Bail early!
                         # print "Found time signature event {}. Bailing!".format(evt)
-                        out = statematrix
                         condition = False
                         break
                 try:
@@ -74,12 +81,21 @@ def midiToNoteStateMatrix(midifile, squash=True, span=span):
 
     S = np.array(statematrix)
     statematrix = np.hstack((S[:, :, 0], S[:, :, 1]))
-    statematrix = np.asarray(statematrix).tolist()
+    # statematrix = np.asarray(statematrix).tolist()
     return statematrix
 
 
 def noteStateMatrixToMidi(statematrix, name="example", span=span):
-    """From Matrix to MIDI."""
+    """From Matrix to MIDI.
+
+    Args:
+        statematrix (np.array): matrix representation of midi file
+
+    Returns:
+        span (int): range of midi notes
+        name (string): generated midi file name
+
+    """
     statematrix = np.array(statematrix)
     if not len(statematrix.shape) == 3:
         statematrix = np.dstack((statematrix[:, :span], statematrix[:, span:]))
