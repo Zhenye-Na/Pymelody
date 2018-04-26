@@ -1,15 +1,16 @@
-"""LSTM Cell for music generator in Tensorflow."""
+"""LSTM GAN for music generator in Tensorflow."""
 
 import os
 import numpy as np
 import tensorflow as tf
+import midi_to_matrix
 from utils.midi_to_matrix import noteStateMatrixToMidi
 
 
 class RNN(object):
     """LSTM model."""
 
-    def __init__(self, model='lstm', ndims=156, num_layers=2, num_units=128, dropout=True):
+    def __init__(self, model='lstm', ndims=156, num_layers=2, num_units=128, dropout=True, nlatent=10):
         """Initialize model.
 
         Args:
@@ -19,9 +20,13 @@ class RNN(object):
         self.x_placeholder = tf.placeholder(tf.float32, [None, ndims])
         self.target_placeholder = tf.placeholder(tf.float32, [None])
 
+        # Input noise
+        self.z_placeholder = tf.placeholder(tf.float32, [None, nlatent])
+
         # Define RNN hyper-parameters
         self._ndims = ndims
         self._model = model
+        self._nlatent = nlatent
         self._dropout = dropout
         self._num_units = num_units
         self._num_layers = num_layers
@@ -112,6 +117,16 @@ class RNN(object):
                                                                loop_function=None,
                                                                scope=None)
 
+    def _decoder_loss(self, logits):
+        """Calculate loss of RNN.
+
+        Args:
+
+        Returns:
+
+        """
+        pass
+
     def _load(self, checkpoint_dir):
         """Load model to resume training.
 
@@ -145,14 +160,59 @@ class RNN(object):
         bias = tf.constant(0.1, shape=[out_size])
         return tf.Variable(weight), tf.Variable(bias)
 
-def generate_songs(self):
-    """Generate new songs from Gibbs Sampling"""
-    # Now the model is fully trained, so let's make some music!
-    # Run a gibbs chain where the visible nodes are initialized to 0
-    sample = gibbs_sample(1).eval(session=self.session, feed_dict={x: np.zeros((50, n_visible))})
-    for i in range(sample.shape[0]):
-        if not any(sample[i, :]):
-            continue
-        # Here we reshape the vector to be time x notes, and then save the vector as a midi file
-        new_song = np.reshape(sample[i, :], (num_timesteps, 2 * note_range))
-        noteStateMatrixToMidi(new_song, "generated_chord_{}".format(i))
+    def generate_songs(self):
+        """Generate new songs from Gibbs Sampling.
+
+        Args:
+
+        Returns:
+
+        """
+        # Now the model is fully trained, so let's make some music!
+        # Run a gibbs chain where the visible nodes are initialized to 0
+
+        # Index of the lowest note on the piano roll
+        lowest_note = midi_to_matrix.lowerBound
+
+        # Index of the highest note on the piano roll
+        highest_note = midi_to_matrix.upperBound
+
+        # Note range
+        note_range = highest_note - lowest_note
+
+        # Number of timesteps that we will create at a time
+        num_timesteps = 15
+
+        sample = self._gibbs_sample(1).eval(session=self.session, feed_dict={
+            self.z_placeholder: np.zeros((50, self._nlatent))})
+
+        for i in range(sample.shape[0]):
+            if not any(sample[i, :]):
+                continue
+            # Reshape the vector to be time x notes, then save as a midi file
+            new_song = np.reshape(sample[i, :], (num_timesteps, 2 * note_range))
+            noteStateMatrixToMidi(new_song, "generated_chord_{}".format(i))
+
+    def _gibbs_sample():
+        """Perform Gibbs Sampling.
+
+        Args:
+
+        Returns:
+
+        """
+        pass
+
+    @staticmethod
+    def _sample(probs):
+        """Sample from a vector of probabilities.
+
+        Args:
+
+        Return:
+
+
+        """
+        # Takes in a vector of probabilities, and returns a random vector of 0s
+        # and 1s sampled from the input vector
+        return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
