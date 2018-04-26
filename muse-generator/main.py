@@ -21,7 +21,7 @@ tf.app.flags.DEFINE_string('checkpoint_dir', os.path.abspath(
     './checkpoint'), 'model save path.')
 
 # Define training hyper-parameters
-tf.app.flags.DEFINE_integer('epochs', 500, 'training epochs.')
+tf.app.flags.DEFINE_integer('epochs', 200, 'training epochs.')
 tf.app.flags.DEFINE_integer('batch_size', 16, 'batch size.')
 tf.app.flags.DEFINE_float('learning_rate', 0.001, 'learning rate.')
 tf.app.flags.DEFINE_boolean(
@@ -33,7 +33,7 @@ tf.app.flags.DEFINE_string('model', 'lstm', 'model class.')
 FLAGS = tf.app.flags.FLAGS
 
 
-def train(model, songs, learning_rate=0.0005, batch_size=32, epochs=200):
+def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
     """Training process.
 
     Args:
@@ -53,13 +53,20 @@ def train(model, songs, learning_rate=0.0005, batch_size=32, epochs=200):
     for step in tqdm(range(0, epochs)):
         for song in songs:
             song = np.array(song)
-            song = song[:int(np.floor(song.shape[0] / num_timesteps) * num_timesteps)]
-            song = np.reshape(song, [song.shape[0] / num_timesteps, song.shape[1] * num_timesteps])
-            model.session.run(
-                model.update_op_tensor,
-                feed_dict={model.x_placeholder: batch_x,
-                           model.learning_rate_placeholder: learning_rate}
-            )
+            song = song[:int(
+                np.floor(song.shape[0] / num_timesteps) * num_timesteps)]
+            song = np.reshape(
+                song, [song.shape[0] / num_timesteps, song.shape[1] * num_timesteps])
+
+            for i in tqdm(range(1, len(song), batch_size)):
+
+                batch_x = song[i:i + batch_size]
+                print(batch_x)
+                model.session.run(
+                    model.update_op_tensor,
+                    feed_dict={model.x_placeholder: batch_x,
+                               model.learning_rate_placeholder: learning_rate}
+                )
 
 
 def main(_):
@@ -81,7 +88,7 @@ def main(_):
 
     # Get dataset
     # mnist_dataset = input_data.read_data_sets('MNIST_data', one_hot=True)
-    songs = get_songs(midi_dir)
+    songs = get_songs(data_dir)
 
     # Build model
     model = RNN()
