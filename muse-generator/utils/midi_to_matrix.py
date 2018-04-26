@@ -7,9 +7,13 @@ This code is mainly from hexahedria & Siraj Raval (Github)
 import midi
 import numpy as np
 
-
+# Index of the lowest note on the piano roll
 lowerBound = 24
+
+# Index of the highest note on the piano roll
 upperBound = 102
+
+# Note range
 span = upperBound - lowerBound
 
 
