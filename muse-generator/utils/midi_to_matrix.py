@@ -25,7 +25,7 @@ def midiToNoteStateMatrix(midifile, squash=True, span=span):
         span (int): range of midi notes
 
     Returns:
-        statematrix (np.array): matrix representation of midi file
+        statematrix (list): matrix representation of midi file
     """
     pattern = midi.read_midifile(midifile)
 
@@ -85,7 +85,7 @@ def midiToNoteStateMatrix(midifile, squash=True, span=span):
 
     S = np.array(statematrix)
     statematrix = np.hstack((S[:, :, 0], S[:, :, 1]))
-    # statematrix = np.asarray(statematrix).tolist()
+    statematrix = np.asarray(statematrix).tolist()
     return statematrix
 
 
