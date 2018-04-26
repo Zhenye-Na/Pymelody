@@ -37,50 +37,37 @@ def rnn_model(model, dropout=True, num_units=128, num_layers=2, batch_size=64, l
         cell = tf.contrib.rnn.MultiRNNCell(cells)
 
 
-class Model(object):
+class RNN(object):
     """LSTM model."""
 
-    def __init__(self, ndims=156, num_layers=2, dropout=True):
-        """Initialize model."""
-        # self.t_layer_sizes = t_layer_sizes
-        # self.p_layer_sizes = p_layer_sizes
+    def __init__(self, model='lstm', ndims=156, num_layers=2, num_units=128, dropout=True):
+        """Initialize model.
 
-        # # From our architecture definition, size of the notewise input
-        # self.t_input_size = 80
+        Args:
 
-        # # time network maps from notewise input size to various hidden sizes
-        # self.time_model = StackedCells(
-        #     self.t_input_size, celltype=LSTM, layers=t_layer_sizes)
-        # self.time_model.layers.append(PassthroughLayer())
+        """
+        # Input images
+        self.x_placeholder = tf.placeholder(tf.float32, [None, ndims])
 
-        # # pitch network takes last layer of time model and state of last note, moving upward
-        # # and eventually ends with a two-element sigmoid layer
-        # p_input_size = t_layer_sizes[-1] + 2
-        # self.pitch_model = StackedCells(
-        #     p_input_size, celltype=LSTM, layers=p_layer_sizes)
-        # self.pitch_model.layers.append(
-        #     Layer(p_layer_sizes[-1], 2, activation=T.nnet.sigmoid))
-
-        # self.dropout = dropout
-
-        # self.conservativity = T.fscalar()
-        # self.srng = T.shared_randomstreams.RandomStreams(
-        #     np.random.randint(0, 1024))
-
-        # self.setup_train()
-        # self.setup_predict()
-        # self.setup_slow_walk()
-
-        # Define RNN layers hyper-parameters
+        # Define RNN hyper-parameters
         self._ndims = ndims
-        self._num_layers = num_layers
+        self._model = model
         self._dropout = dropout
+        self._num_units = num_units
+        self._num_layers = num_layers
 
         # Define dropout wrapper parameters
         self.input_keep_prob = tf.placeholder(tf.float32, [])
         self.output_keep_prob = tf.placeholder(tf.float32, [])
 
-    def _sequential(self, num_layers=2, num_units=128, dropout=True):
+        # Build computational graph
+        blabla = self._sequential(self.x_placeholder)
+
+        # Create session
+        self.session = tf.InteractiveSession()
+        self.session.run(tf.global_variables_initializer())
+
+    def _sequential(self, x):
         """Build sequential model.
 
         Args:
@@ -89,26 +76,31 @@ class Model(object):
 
         """
         # Define helper function to declare layer class
-        if model == 'rnn':
+        if self._model == 'rnn':
             rnn_layer = tf.contrib.rnn.BasicRNNCell
-        elif model == 'gru':
+        elif self._model == 'gru':
             rnn_layer = tf.contrib.rnn.GRUCell
-        elif model == 'lstm':
+        elif self._model == 'lstm':
             rnn_layer = tf.contrib.rnn.BasicLSTMCell
 
         cells = []
 
-        # Define MultiRNNCell with dropout
-        for _ in range(num_layers):
-            cell = rnn_layer(num_units)  # Or LSTMCell(num_units)
-            if dropout:
-                cell = tf.contrib.rnn.DropoutWrapper(
-                    cell, output_keep_prob=1.0 - dropout)
+        # Define MultiRNNCell with Dropout Wrapper
+        for _ in range(self._num_layers):
+            cell = rnn_layer(self._num_units, state_is_tuple=True)
+            if self._dropout:
+                cell = tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.input_keep_prob, output_keep_prob=self.output_keep_prob)
             cells.append(cell)
-            cell = tf.contrib.rnn.MultiRNNCell(cells)
+        cell = tf.contrib.rnn.MultiRNNCell(cells)
 
         # Simulate the recurrent network over the time
         output, last_state = tf.nn.dynamic_rnn(cell, data, dtype=tf.float32)
+
+        output = tf.reshape(output, [-1, self._num_units])
+
+        # weights = tf.Variable(tf.truncated_normal([self._num_units, vocab_size + 1]))
+        # bias = tf.Variable(tf.zeros(shape=[vocab_size + 1]))
+        # logits = tf.nn.bias_add(tf.matmul(output, weights), bias=bias)
 
     def _generator():
         pass
