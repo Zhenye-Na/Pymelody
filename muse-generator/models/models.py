@@ -1,5 +1,6 @@
 """LSTM Cell for music generator in Tensorflow."""
 
+import os
 import numpy as np
 import tensorflow as tf
 
@@ -75,6 +76,9 @@ class RNN(object):
         Returns:
 
         """
+        # get lasting time for particular MIDI files.
+        time, _ = x.shape
+
         # Define helper function to declare layer class
         if self._model == 'rnn':
             rnn_layer = tf.contrib.rnn.BasicRNNCell
@@ -94,9 +98,16 @@ class RNN(object):
         cell = tf.contrib.rnn.MultiRNNCell(cells)
 
         # Simulate the recurrent network over the time
-        output, last_state = tf.nn.dynamic_rnn(cell, data, dtype=tf.float32)
+        output, last_state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
 
         output = tf.reshape(output, [-1, self._num_units])
+        # output = tf.transpose(output, [1, 0, 2])
+        last = tf.gather(output, int(output.get_shape()[0]) - 1)
+
+        # Softmax layer.
+        weight, bias = self._weight_and_bias(self._num_units, time)
+        prediction = tf.nn.softmax(tf.matmul(last, weight) + bias)
+        return prediction
 
         # weights = tf.Variable(tf.truncated_normal([self._num_units, vocab_size + 1]))
         # bias = tf.Variable(tf.zeros(shape=[vocab_size + 1]))
@@ -105,21 +116,7 @@ class RNN(object):
     def _generator():
         pass
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def _load(checkpoint_dir):
+    def _load(self, checkpoint_dir):
         import re
         print(" [*] Reading checkpoints...")
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
@@ -127,10 +124,19 @@ class RNN(object):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
-            counter = int(next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
+            self.saver.restore(self.sess, os.path.join(
+                checkpoint_dir, ckpt_name))
+            counter = int(
+                next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
             print(" [*] Success to read {}".format(ckpt_name))
             return True, counter
         else:
             print(" [*] Failed to find a checkpoint")
             return False, 0
+
+    @staticmethod
+    def _weight_and_bias(in_size, out_size):
+        """Initialize weight and bias for dense layer."""
+        weight = tf.truncated_normal([in_size, out_size], stddev=0.01)
+        bias = tf.constant(0.1, shape=[out_size])
+        return tf.Variable(weight), tf.Variable(bias)
