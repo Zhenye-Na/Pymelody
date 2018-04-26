@@ -26,10 +26,7 @@ def get_songs(path):
             raise e
     return songs
 
+
 def generate_batch():
     """blablabla."""
     pass
-
-
-
-

@@ -35,7 +35,7 @@ class RNN(object):
         self.cost = self._sequential_loss(logits, y)
 
         # Add optimizers for appropriate variables
-        self.d_optimizer = tf.train.AdamOptimizer(
+        self.d_optimizer = tf.train.RMSPropOptimizer(
             learning_rate=self.learning_rate_placeholder).minimize(
             self.cost)
 
