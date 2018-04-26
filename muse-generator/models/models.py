@@ -5,50 +5,17 @@ import numpy as np
 import tensorflow as tf
 
 
-def rnn_model(model, dropout=True, num_units=128, num_layers=2, batch_size=64, learning_rate=0.01):
-    """Construct RNN LSTM model.
-
-    :param model: model class
-    :param input_data: input data placeholder
-    :param output_data: output data placeholder
-    :param num_units:
-    :param num_layers:
-    :param batch_size:
-    :param learning_rate:
-    :return:
-    """
-    # Default should be LSTM
-    if model == 'rnn':
-        rnn_layer = tf.contrib.rnn.BasicRNNCell
-    elif model == 'gru':
-        rnn_layer = tf.contrib.rnn.GRUCell
-    elif model == 'lstm':
-        rnn_layer = tf.contrib.rnn.BasicLSTMCell
-
-    # dropout
-    dropout = tf.placeholder(tf.float32)
-
-    cells = []
-    for _ in range(num_layers):
-        cell = rnn_layer(num_units)  # Or LSTMCell(num_units)
-        if dropout:
-            cell = tf.contrib.rnn.DropoutWrapper(
-                cell, output_keep_prob=1.0 - dropout)
-        cells.append(cell)
-        cell = tf.contrib.rnn.MultiRNNCell(cells)
-
-
 class RNN(object):
     """LSTM model."""
 
-    def __init__(self, model='lstm', ndims=156, num_layers=2, num_units=128, dropout=True):
+    def __init__(self, model='lstm', ndims=156, num_layers=2, num_units=128, dropout=True, sequence_length=3):
         """Initialize model.
 
         Args:
 
         """
         # Input images
-        self.x_placeholder = tf.placeholder(tf.float32, [None, ndims])
+        self.x_placeholder = tf.placeholder(tf.float32, [None, sequence_length, ndims])
 
         # Define RNN hyper-parameters
         self._ndims = ndims
@@ -62,7 +29,15 @@ class RNN(object):
         self.output_keep_prob = tf.placeholder(tf.float32, [])
 
         # Build computational graph
-        blabla = self._sequential(self.x_placeholder)
+        logits = self._sequential(self.x_placeholder)
+
+        # Compute loss
+        self.cost = self._sequential_loss(logits, y)
+
+        # Add optimizers for appropriate variables
+        self.d_optimizer = tf.train.AdamOptimizer(
+            learning_rate=self.learning_rate_placeholder).minimize(
+            self.cost)
 
         # Create session
         self.session = tf.InteractiveSession()
@@ -77,7 +52,7 @@ class RNN(object):
 
         """
         # get lasting time for particular MIDI files.
-        time, _ = x.shape
+        batch_size, self._time, ndims = x.shape
 
         # Define helper function to declare layer class
         if self._model == 'rnn':
@@ -93,30 +68,58 @@ class RNN(object):
         for _ in range(self._num_layers):
             cell = rnn_layer(self._num_units, state_is_tuple=True)
             if self._dropout:
-                cell = tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.input_keep_prob, output_keep_prob=self.output_keep_prob)
+                cell = tf.contrib.rnn.DropoutWrapper(
+                    cell,
+                    input_keep_prob=self.input_keep_prob,
+                    output_keep_prob=self.output_keep_prob)
             cells.append(cell)
         cell = tf.contrib.rnn.MultiRNNCell(cells)
 
         # Simulate the recurrent network over the time
-        output, last_state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
+        # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
+        # which is [batch_size, sequence_length, hidden_dim]
+        outputs, _ = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
 
-        output = tf.reshape(output, [-1, self._num_units])
-        # output = tf.transpose(output, [1, 0, 2])
-        last = tf.gather(output, int(output.get_shape()[0]) - 1)
+        # outputs = tf.reshape(outputs, [-1, self._num_units])
+        outputs = tf.transpose(outputs, [1, 0, 2])
+        last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
 
         # Softmax layer.
-        weight, bias = self._weight_and_bias(self._num_units, time)
-        prediction = tf.nn.softmax(tf.matmul(last, weight) + bias)
-        return prediction
+        weight, bias = self._weight_and_bias(self._num_units, self._time)
+        logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
+
+        # output = tf.reshape(output, [-1, self._num_units])
+        # # output = tf.transpose(output, [1, 0, 2])
+        # last = tf.gather(output, int(output.get_shape()[0]) - 1)
+
+        # # Softmax layer.
+        # weight, bias = self._weight_and_bias(self._num_units, self._time)
+        # prediction = tf.nn.softmax(tf.matmul(last, weight) + bias)
+        # return prediction
 
         # weights = tf.Variable(tf.truncated_normal([self._num_units, vocab_size + 1]))
         # bias = tf.Variable(tf.zeros(shape=[vocab_size + 1]))
         # logits = tf.nn.bias_add(tf.matmul(output, weights), bias=bias)
+        return logits
+
+    def _sequential_loss(self, logits, gt):
+        # pass
+
+        cross_entropy = tf.reduce_sum(gt * tf.log(tf.clip_by_value(logits, 1e-10, 1.0)))
+        return cross_entropy
 
     def _generator():
         pass
 
     def _load(self, checkpoint_dir):
+        """Load model to resume training.
+
+        Not finished!
+
+        Args:
+
+
+        """
         import re
         print(" [*] Reading checkpoints...")
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
