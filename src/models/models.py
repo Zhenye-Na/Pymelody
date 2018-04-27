@@ -4,7 +4,6 @@ import re
 import os
 import numpy as np
 import tensorflow as tf
-import midi_to_matrix
 from utils.midi_to_matrix import noteStateMatrixToMidi
 from tensorflow.contrib import layers
 
@@ -18,14 +17,15 @@ class RNN(object):
         """Initialize RNN-GAN model.
 
         Args:
-            ndims (int): Number of dimensions in the feature.
+            ndims (int): Number of dimensions in the feature space.
             nlatent (int): Number of dimensions in the latent space.
         """
-        # Input and targets
-        self.x_placeholder = tf.placeholder(tf.float32, [None, ndims])
+        # Input songs
+        self.x_placeholder = tf.placeholder(
+            tf.float32, [None, ndims * num_timesteps])
 
-        # Input noise
-        self.z_placeholder = tf.placeholder(tf.float32, [None, nlatent])
+        # Input sampling
+        self.z_placeholder = tf.placeholder(tf.float32, [None, 16, nlatent])
 
         # Define RNN hyper-parameters
         self._model = model
@@ -44,8 +44,9 @@ class RNN(object):
         self._bn = bn
 
         # Define dropout wrapper parameters
-        self.input_keep_prob = tf.placeholder(tf.float32, [])
-        self.output_keep_prob = tf.placeholder(tf.float32, [])
+        # self.input_keep_prob = tf.placeholder(tf.float32, [])
+        # self.output_keep_prob = tf.placeholder(tf.float32, [])
+        self.sequence_length_placeholder = tf.placeholder(tf.int32, [None])
 
         # Build computational graph
         self.x_hat = self._generator(self.z_placeholder)
@@ -58,18 +59,21 @@ class RNN(object):
         # Generator loss
         self.g_loss = self._generator_loss(y_hat)
 
+        # Learning rate
+        self.learning_rate_placeholder = tf.placeholder(tf.float32, [])
+
         # Add optimizers for appropriate variables
         d_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, "discriminator")
         self.d_optimizer = tf.train.AdamOptimizer(
             learning_rate=self.learning_rate_placeholder,
-            name='d_optimizer').minimize(self.e_loss, var_list=d_vars)
+            name='d_optimizer').minimize(self.d_loss, var_list=d_vars)
 
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, "generator")
         self.g_optimizer = tf.train.AdamOptimizer(
             learning_rate=self.learning_rate_placeholder,
-            name='g_optimizer').minimize(self.d_loss, var_list=g_vars)
+            name='g_optimizer').minimize(self.g_loss, var_list=g_vars)
 
         # Create session
         self.session = tf.InteractiveSession()
@@ -122,8 +126,6 @@ class RNN(object):
         """
         with tf.variable_scope("generator", reuse=reuse) as scope:
 
-            batch_size, ndims = z.shape
-
             # Declare Layer Class
             if self._model == 'rnn':
                 rnn_layer = tf.contrib.rnn.BasicRNNCell
@@ -135,30 +137,34 @@ class RNN(object):
             cells = []
 
             # Define MultiRNNCell with Dropout Wrapper
-            for _ in range(self._num_layers):
+            for _ in range(self._num_layers_g):
                 cell = rnn_layer(self._num_units, state_is_tuple=True)
                 if self._dropout:
                     cell = tf.contrib.rnn.DropoutWrapper(
-                        cell,
-                        input_keep_prob=self.input_keep_prob,
-                        output_keep_prob=self.output_keep_prob)
+                        cell)
+                    # input_keep_prob=self.input_keep_prob,
+                    # output_keep_prob=self.output_keep_prob)
                 cells.append(cell)
             cell = tf.contrib.rnn.MultiRNNCell(cells)
 
             # Simulate the recurrent network over the time
             # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
             # => [batch_size, sequence_length, hidden_dim]
-            outputs, _ = tf.nn.dynamic_rnn(cell, z, dtype=tf.float32)
+            outputs, _ = tf.nn.dynamic_rnn(cell=cell,
+                                           inputs=z,
+                                           sequence_length=self.sequence_length_placeholder,
+                                           dtype=tf.float32)
 
-            # outputs = tf.reshape(outputs, [-1, self._num_units])
-            outputs = tf.transpose(outputs, [1, 0, 2])
-            last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
+            # Swap the axis of 0 and 1
+            # outputs = tf.transpose(outputs, [1, 0, 2])
+            outputs = tf.unstack(tf.transpose(outputs, [1, 0, 2]))
+            # last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
 
-            # Softmax layer.
+            # Output layer.
             weight, bias = self._weight_and_bias(
                 self._num_units, self._nlatent)
             # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
-            y_hat = tf.matmul(last, weight) + bias
+            y_hat = tf.matmul(outputs[-1], weight) + bias
 
         return y_hat
 
@@ -177,10 +183,6 @@ class RNN(object):
             logits=y_hat, labels=labels))
         return l
 
-    @staticmethod
-    def _lrelu(x, n, leak=0.2):
-        return tf.maximum(x, leak * x, name=n)
-
     def _build_convlayers(self, input_tensor):
         """Build layers for discriminator.
 
@@ -196,7 +198,7 @@ class RNN(object):
 
         # Reshape input tensor [15, 156]
         x_song = tf.reshape(
-            input_tensor, [-1, self._num_timesteps, self._ndims, 1])
+            input_tensor, [16, self._num_timesteps, self._ndims, 1])
 
         # Conv Layer 1
         w_conv1 = self._weight_variable([5, 5, 1, 3])
@@ -207,21 +209,25 @@ class RNN(object):
         w_conv2 = self._weight_variable([5, 5, 3, 6])
         b_conv2 = self._bias_variable([6])
         h_conv2 = self._lrelu(self._conv2d(h_conv1, w_conv2) + b_conv2)
-        # h_pool2 = self._max_pool_2x2(h_conv2)
+        h_pool2 = self._max_pool_2x2(h_conv2)
 
         # fc layer 1
-        w_fc1 = self._weight_variable([7 * 7 * 6, 16])
-        b_fc1 = self._bias_variable([16])
-        h_pool2_flat = tf.reshape(h_conv2, [-1, 7 * 7 * 16])
+        w_fc1 = self._weight_variable([8 * 78 * 16, 1024])
+        b_fc1 = self._bias_variable([1024])
+        h_pool2_flat = tf.reshape(h_pool2, [-1, 8 * 78 * 16])
         h_fc1 = self._lrelu(tf.matmul(h_pool2_flat, w_fc1) + b_fc1)
         h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 
         # fc layer 2
-        w_fc2 = self._weight_variable([16, 1])
+        w_fc2 = self._weight_variable([1024, 1])
         b_fc2 = self._bias_variable([1])
         y = tf.matmul(h_fc1_drop, w_fc2) + b_fc2
 
         return y
+
+    @staticmethod
+    def _lrelu(x, leak=0.2):
+        return tf.maximum(x, leak * x)
 
     @staticmethod
     def _weight_variable(shape):
@@ -235,22 +241,23 @@ class RNN(object):
 
     @staticmethod
     def _conv2d(x, w):
-        # strides=[1,x_movement,y_movement,1]
         return tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME')
 
     @staticmethod
     def _max_pool_2x2(x):
-        return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        return tf.nn.max_pool(x,
+                              ksize=[1, 2, 2, 1],
+                              strides=[1, 2, 2, 1],
+                              padding='SAME')
 
-    def _save(self, checkpoint_dir, component='all', global_step=None):
+    def _save(self, checkpoint_dir, global_step=None):
+        """Save model.
 
-        if component == 'all':
-            saver_names = ['midinet', 'G', 'D', 'invG']
-        elif component == 'GD':
-            saver_names = ['midinet', 'G', 'D']
-        elif component == 'invG':
-            saver_names = ['midinet', 'invG']
+        Args:
 
+        Returns:
+
+        """
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
@@ -291,12 +298,19 @@ class RNN(object):
 
     @staticmethod
     def _weight_and_bias(in_size, out_size):
-        """Initialize weight and bias for dense layer."""
+        """Initialize weight and bias for dense layer.
+
+        Args:
+
+        Returns:
+
+
+        """
         weight = tf.truncated_normal([in_size, out_size], stddev=0.01)
         bias = tf.constant(0.1, shape=[out_size])
         return tf.Variable(weight), tf.Variable(bias)
 
-    def generate_songs(self):
+    def generate_songs(self, z_sampling):
         """Generate new songs from Gibbs Sampling.
 
         Args:
@@ -305,10 +319,10 @@ class RNN(object):
 
         """
         # Index of the lowest note on the piano roll
-        lowest_note = midi_to_matrix.lowerBound
+        lowest_note = 24
 
         # Index of the highest note on the piano roll
-        highest_note = midi_to_matrix.upperBound
+        highest_note = 102
 
         # Note range
         note_range = highest_note - lowest_note
