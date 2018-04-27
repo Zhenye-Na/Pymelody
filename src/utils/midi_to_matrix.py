@@ -83,6 +83,7 @@ def midiToNoteStateMatrix(midifile, squash=True, span=span):
 
         time += 1
 
+    # S (timesteps * noterange) = (?, 156)
     S = np.array(statematrix)
     statematrix = np.hstack((S[:, :, 0], S[:, :, 1]))
     statematrix = np.asarray(statematrix).tolist()

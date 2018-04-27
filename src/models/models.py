@@ -11,7 +11,7 @@ from tensorflow.contrib import layers
 class RNN(object):
     """LSTM model."""
 
-    def __init__(self, model='lstm', ndims=156, nlatent=10,
+    def __init__(self, model='lstm', ndims=156, nlatent=156,
                  num_layers_g=3, num_units=128, dropout=True,
                  bn=False, num_timesteps=15):
         """Initialize RNN-GAN model.
@@ -25,7 +25,7 @@ class RNN(object):
             tf.float32, [None, ndims * num_timesteps])
 
         # Input sampling
-        self.z_placeholder = tf.placeholder(tf.float32, [None, 16, nlatent])
+        self.z_placeholder = tf.placeholder(tf.float32, [None, num_timesteps, nlatent])
 
         # Define RNN hyper-parameters
         self._model = model
@@ -46,7 +46,7 @@ class RNN(object):
         # Define dropout wrapper parameters
         # self.input_keep_prob = tf.placeholder(tf.float32, [])
         # self.output_keep_prob = tf.placeholder(tf.float32, [])
-        self.sequence_length_placeholder = tf.placeholder(tf.int32, [None])
+        # self.sequence_length_placeholder = tf.placeholder(tf.int32, [None])
 
         # Build computational graph
         self.x_hat = self._generator(self.z_placeholder)
@@ -147,12 +147,9 @@ class RNN(object):
                 cells.append(cell)
             cell = tf.contrib.rnn.MultiRNNCell(cells)
 
-            # Simulate the recurrent network over the time
-            # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
-            # => [batch_size, sequence_length, hidden_dim]
+            # Perform fully dynamic unrolling of inputs
             outputs, _ = tf.nn.dynamic_rnn(cell=cell,
                                            inputs=z,
-                                           sequence_length=self.sequence_length_placeholder,
                                            dtype=tf.float32)
 
             # Swap the axis of 0 and 1
@@ -162,7 +159,7 @@ class RNN(object):
 
             # Output layer.
             weight, bias = self._weight_and_bias(
-                self._num_units, self._nlatent)
+                self._num_units, self._ndims * self._num_timesteps)
             # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
             y_hat = tf.matmul(outputs[-1], weight) + bias
 
@@ -196,9 +193,9 @@ class RNN(object):
         """
         keep_prob = 0.8
 
-        # Reshape input tensor [15, 156]
+        # Reshape input tensor [-1, 15, 156, 1]
         x_song = tf.reshape(
-            input_tensor, [16, self._num_timesteps, self._ndims, 1])
+            input_tensor, [-1, self._num_timesteps, self._ndims, 1])
 
         # Conv Layer 1
         w_conv1 = self._weight_variable([5, 5, 1, 3])
@@ -212,9 +209,9 @@ class RNN(object):
         h_pool2 = self._max_pool_2x2(h_conv2)
 
         # fc layer 1
-        w_fc1 = self._weight_variable([8 * 78 * 16, 1024])
+        w_fc1 = self._weight_variable([8 * 78 * 6, 1024])
         b_fc1 = self._bias_variable([1024])
-        h_pool2_flat = tf.reshape(h_pool2, [-1, 8 * 78 * 16])
+        h_pool2_flat = tf.reshape(h_pool2, [-1, 8 * 78 * 6])
         h_fc1 = self._lrelu(tf.matmul(h_pool2_flat, w_fc1) + b_fc1)
         h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 
@@ -330,16 +327,11 @@ class RNN(object):
         # Number of timesteps that we will create at a time
         num_timesteps = 15
 
-        sample = self._gibbs_sample(1).eval(
+        sample = self.x_hat.eval(
             session=self.session,
-            feed_dict={self.z_placeholder: np.zeros((50, self._nlatent))})
+            feed_dict={self.z_placeholder: z_sampling})
 
-        for i in range(sample.shape[0]):
-            if not any(sample[i, :]):
-                continue
-            # Reshape the vector to be time x notes, then save as a midi file
-            new_song = sample[i, :].reshape(num_timesteps, 2 * note_range)
-            noteStateMatrixToMidi(new_song, "generated_chord_{}".format(i))
+        return sample
 
     def _gibbs_sample():
         """Perform Gibbs Sampling.
