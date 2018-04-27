@@ -1,17 +1,22 @@
 """LSTM GAN for music generator in Tensorflow."""
 
+import re
 import os
 import numpy as np
 import tensorflow as tf
 import midi_to_matrix
 from utils.midi_to_matrix import noteStateMatrixToMidi
+from tensorflow.nn import conv2d, relu
+from tensorflow.contrib import layers
 
 
 class RNN(object):
     """LSTM model."""
 
-    def __init__(self, model='lstm', ndims=156, nlatent=10, num_layers=2, num_units=128, dropout=True):
-        """Initialize model.
+    def __init__(self, model='lstm', ndims=156, nlatent=10,
+                 num_layers_g=3, num_units=128, dropout=True,
+                 bn=False, num_timesteps=15):
+        """Initialize RNN-GAN model.
 
         Args:
             ndims (int): Number of dimensions in the feature.
@@ -24,12 +29,20 @@ class RNN(object):
         self.z_placeholder = tf.placeholder(tf.float32, [None, nlatent])
 
         # Define RNN hyper-parameters
-        self._ndims = ndims
         self._model = model
         self._nlatent = nlatent
         self._dropout = dropout
         self._num_units = num_units
-        self._num_layers = num_layers
+
+        # Define input tensor shape
+        self._num_timesteps = num_timesteps
+        self._ndims = ndims
+
+        # Define number of layers in generator
+        self._num_layers_g = num_layers_g
+
+        # Define batch normalization for discriminator or not
+        self._bn = bn
 
         # Define dropout wrapper parameters
         self.input_keep_prob = tf.placeholder(tf.float32, [])
@@ -40,8 +53,10 @@ class RNN(object):
         y_hat = self._discriminator(self.x_hat)
         y = self._discriminator(self.x_placeholder, reuse=True)
 
-        # Compute loss
+        # Discriminator loss
         self.d_loss = self._discriminator_loss(y, y_hat)
+
+        # Generator loss
         self.g_loss = self._generator_loss(y_hat)
 
         # Add optimizers for appropriate variables
@@ -57,11 +72,6 @@ class RNN(object):
             learning_rate=self.learning_rate_placeholder,
             name='g_optimizer').minimize(self.d_loss, var_list=g_vars)
 
-        # # Add optimizers for appropriate variables
-        # self.optimizer = tf.train.AdamOptimizer(
-        #     learning_rate=self.learning_rate_placeholder).minimize(
-        #     self.cost)
-
         # Create session
         self.session = tf.InteractiveSession()
         self.session.run(tf.global_variables_initializer())
@@ -74,45 +84,8 @@ class RNN(object):
         Returns:
 
         """
-        # batch_size, ndims = x.shape
-
-        # # Declare Layer Class
-        # if self._model == 'rnn':
-        #     rnn_layer = tf.contrib.rnn.BasicRNNCell
-        # elif self._model == 'gru':
-        #     rnn_layer = tf.contrib.rnn.GRUCell
-        # elif self._model == 'lstm':
-        #     rnn_layer = tf.contrib.rnn.BasicLSTMCell
-
-        # cells = []
-
-        # with tf.variable_scope("encoder", reuse=reuse) as scope:
-
-        #     # Define MultiRNNCell with Dropout Wrapper
-        #     for _ in range(self._num_layers):
-        #         cell = rnn_layer(self._num_units, state_is_tuple=True)
-        #         if self._dropout:
-        #             cell = tf.contrib.rnn.DropoutWrapper(
-        #                 cell,
-        #                 input_keep_prob=self.input_keep_prob,
-        #                 output_keep_prob=self.output_keep_prob)
-        #         cells.append(cell)
-        #     cell = tf.contrib.rnn.MultiRNNCell(cells)
-
-        #     # Simulate the recurrent network over the time
-        #     # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
-        #     # => [batch_size, sequence_length, hidden_dim]
-        #     outputs, _ = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
-
-        #     # outputs = tf.reshape(outputs, [-1, self._num_units])
-        #     outputs = tf.transpose(outputs, [1, 0, 2])
-        #     last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
-
-        #     # Softmax layer.
-        #     weight, bias = self._weight_and_bias(self._num_units, self._time)
-        #     logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
-
-        # return logits
+        with tf.variable_scope("discriminator", reuse=reuse) as scope:
+            self._build_convlayers(x, self._bn, self._num_layers_d)
 
     def _discriminator_loss(self, y_hat, y):
         """Calculate loss of RNN.
@@ -138,10 +111,6 @@ class RNN(object):
         loss = tf.reduce_mean(d_loss_fake + d_loss_real)
         return loss
 
-        # cross_entropy = tf.reduce_sum(gt * tf.log(
-        # tf.clip_by_value(logits, 1e-10, 1.0)))
-        # return cross_entropy
-
     def _generator(self, z, reuse=False):
         """Build sequential decoder model.
 
@@ -150,13 +119,8 @@ class RNN(object):
         Returns:
 
         """
-        with tf.variable_scope("decoder", reuse=reuse) as scope:
+        with tf.variable_scope("generator", reuse=reuse) as scope:
 
-            # outputs, state = tf.contrib.legacy_seq2seq.rnn_decoder(decoder_inputs,
-            #                                                        initial_state,
-            #                                                        cell,
-            #                                                        loop_function=None,
-            #                                                        scope=None)
             batch_size, ndims = z.shape
 
             # Declare Layer Class
@@ -169,33 +133,31 @@ class RNN(object):
 
             cells = []
 
-            with tf.variable_scope("encoder", reuse=reuse) as scope:
+            # Define MultiRNNCell with Dropout Wrapper
+            for _ in range(self._num_layers):
+                cell = rnn_layer(self._num_units, state_is_tuple=True)
+                if self._dropout:
+                    cell = tf.contrib.rnn.DropoutWrapper(
+                        cell,
+                        input_keep_prob=self.input_keep_prob,
+                        output_keep_prob=self.output_keep_prob)
+                cells.append(cell)
+            cell = tf.contrib.rnn.MultiRNNCell(cells)
 
-                # Define MultiRNNCell with Dropout Wrapper
-                for _ in range(self._num_layers):
-                    cell = rnn_layer(self._num_units, state_is_tuple=True)
-                    if self._dropout:
-                        cell = tf.contrib.rnn.DropoutWrapper(
-                            cell,
-                            input_keep_prob=self.input_keep_prob,
-                            output_keep_prob=self.output_keep_prob)
-                    cells.append(cell)
-                cell = tf.contrib.rnn.MultiRNNCell(cells)
+            # Simulate the recurrent network over the time
+            # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
+            # => [batch_size, sequence_length, hidden_dim]
+            outputs, _ = tf.nn.dynamic_rnn(cell, z, dtype=tf.float32)
 
-                # Simulate the recurrent network over the time
-                # outputs is a tensor of shape [batch_size, max_time, cell_state_size]
-                # => [batch_size, sequence_length, hidden_dim]
-                outputs, _ = tf.nn.dynamic_rnn(cell, z, dtype=tf.float32)
+            # outputs = tf.reshape(outputs, [-1, self._num_units])
+            outputs = tf.transpose(outputs, [1, 0, 2])
+            last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
 
-                # outputs = tf.reshape(outputs, [-1, self._num_units])
-                outputs = tf.transpose(outputs, [1, 0, 2])
-                last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
-
-                # Softmax layer.
-                weight, bias = self._weight_and_bias(
-                    self._num_units, self._nlatent)
-                # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
-                y_hat = tf.matmul(last, weight) + bias
+            # Softmax layer.
+            weight, bias = self._weight_and_bias(
+                self._num_units, self._nlatent)
+            # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
+            y_hat = tf.matmul(last, weight) + bias
 
         return y_hat
 
@@ -213,6 +175,69 @@ class RNN(object):
         l = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             logits=y_hat, labels=labels))
         return l
+
+    @staticmethod
+    def _lrelu(x, n, leak=0.2):
+        return tf.maximum(x, leak * x, name=n)
+
+    def _build_convlayers(self, input_tensor):
+        """Build layers for discriminator.
+
+        Args:
+            input_tensor:
+            bn (boolean): batch normalization or not
+            num_layers: number of layers for discriminator
+
+        Return:
+            layers
+        """
+        num_h1 = 392
+        num_h2 = 196
+
+        # Reshape song
+        x_song = tf.reshape(
+            input_tensor, [-1, self._num_timesteps, self._ndims, 1])
+
+        # Conv layer 1
+        w1 = tf.get_variable(name="w1",
+                             shape=[self._ndims, num_h1],
+                             dtype=tf.float32,
+                             initializer=layers.xavier_initializer(uniform=False))
+
+        b1 = tf.get_variable(name="b1",
+                             shape=[num_h1],
+                             dtype=tf.float32,
+                             initializer=tf.zeros_initializer())
+
+        h1 = self._lrelu(conv2d(x_song, w1) + b1)
+
+        # Conv layer 2
+        w2 = tf.get_variable(name="w2",
+                             shape=[num_h1, num_h2],
+                             dtype=tf.float32,
+                             initializer=layers.xavier_initializer(uniform=False))
+
+        b2 = tf.get_variable(name="b2",
+                             shape=[num_h2],
+                             dtype=tf.float32,
+                             initializer=tf.zeros_initializer())
+
+        h2 = self._lrelu(conv2d(h1, w2) + b2)
+
+        # Conv layer 3
+        w3 = tf.get_variable(name="w3",
+                             shape=[num_h2, 1],
+                             dtype=tf.float32,
+                             initializer=layers.xavier_initializer(uniform=False))
+
+        b3 = tf.get_variable(name="b3",
+                             shape=[1],
+                             dtype=tf.float32,
+                             initializer=tf.zeros_initializer())
+
+        y = tf.matmul(h2, w3) + b3
+
+        return y
 
     def _save(self, checkpoint_dir, component='all', global_step=None):
 
@@ -243,7 +268,6 @@ class RNN(object):
 
 
         """
-        import re
         print(" [*] Reading checkpoints...")
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
 
