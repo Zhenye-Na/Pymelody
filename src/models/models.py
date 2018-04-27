@@ -6,7 +6,6 @@ import numpy as np
 import tensorflow as tf
 import midi_to_matrix
 from utils.midi_to_matrix import noteStateMatrixToMidi
-from tensorflow.nn import conv2d, relu
 from tensorflow.contrib import layers
 
 
@@ -85,7 +84,9 @@ class RNN(object):
 
         """
         with tf.variable_scope("discriminator", reuse=reuse) as scope:
-            self._build_convlayers(x, self._bn, self._num_layers_d)
+            y = self._build_convlayers(x)
+
+        return y
 
     def _discriminator_loss(self, y_hat, y):
         """Calculate loss of RNN.
@@ -112,7 +113,7 @@ class RNN(object):
         return loss
 
     def _generator(self, z, reuse=False):
-        """Build sequential decoder model.
+        """Build generator.
 
         Args:
 
@@ -191,53 +192,55 @@ class RNN(object):
         Return:
             layers
         """
-        num_h1 = 392
-        num_h2 = 196
+        keep_prob = 0.8
 
-        # Reshape song
+        # Reshape input tensor [15, 156]
         x_song = tf.reshape(
             input_tensor, [-1, self._num_timesteps, self._ndims, 1])
 
-        # Conv layer 1
-        w1 = tf.get_variable(name="w1",
-                             shape=[self._ndims, num_h1],
-                             dtype=tf.float32,
-                             initializer=layers.xavier_initializer(uniform=False))
+        # Conv Layer 1
+        w_conv1 = self._weight_variable([5, 5, 1, 3])
+        b_conv1 = self._bias_variable([3])
+        h_conv1 = self._lrelu(self._conv2d(x_song, w_conv1) + b_conv1)
 
-        b1 = tf.get_variable(name="b1",
-                             shape=[num_h1],
-                             dtype=tf.float32,
-                             initializer=tf.zeros_initializer())
+        # Conv Layer 2
+        w_conv2 = self._weight_variable([5, 5, 3, 6])
+        b_conv2 = self._bias_variable([6])
+        h_conv2 = self._lrelu(self._conv2d(h_conv1, w_conv2) + b_conv2)
+        # h_pool2 = self._max_pool_2x2(h_conv2)
 
-        h1 = self._lrelu(conv2d(x_song, w1) + b1)
+        # fc layer 1
+        w_fc1 = self._weight_variable([7 * 7 * 6, 16])
+        b_fc1 = self._bias_variable([16])
+        h_pool2_flat = tf.reshape(h_conv2, [-1, 7 * 7 * 16])
+        h_fc1 = self._lrelu(tf.matmul(h_pool2_flat, w_fc1) + b_fc1)
+        h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 
-        # Conv layer 2
-        w2 = tf.get_variable(name="w2",
-                             shape=[num_h1, num_h2],
-                             dtype=tf.float32,
-                             initializer=layers.xavier_initializer(uniform=False))
-
-        b2 = tf.get_variable(name="b2",
-                             shape=[num_h2],
-                             dtype=tf.float32,
-                             initializer=tf.zeros_initializer())
-
-        h2 = self._lrelu(conv2d(h1, w2) + b2)
-
-        # Conv layer 3
-        w3 = tf.get_variable(name="w3",
-                             shape=[num_h2, 1],
-                             dtype=tf.float32,
-                             initializer=layers.xavier_initializer(uniform=False))
-
-        b3 = tf.get_variable(name="b3",
-                             shape=[1],
-                             dtype=tf.float32,
-                             initializer=tf.zeros_initializer())
-
-        y = tf.matmul(h2, w3) + b3
+        # fc layer 2
+        w_fc2 = self._weight_variable([16, 1])
+        b_fc2 = self._bias_variable([1])
+        y = tf.matmul(h_fc1_drop, w_fc2) + b_fc2
 
         return y
+
+    @staticmethod
+    def _weight_variable(shape):
+        initial = tf.truncated_normal(shape, stddev=0.1)
+        return tf.Variable(initial)
+
+    @staticmethod
+    def _bias_variable(shape):
+        initial = tf.constant(0.1, shape=shape)
+        return tf.Variable(initial)
+
+    @staticmethod
+    def _conv2d(x, w):
+        # strides=[1,x_movement,y_movement,1]
+        return tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME')
+
+    @staticmethod
+    def _max_pool_2x2(x):
+        return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
     def _save(self, checkpoint_dir, component='all', global_step=None):
 
@@ -256,7 +259,9 @@ class RNN(object):
             if saver_name in saver_names:
                 if not os.path.exists(os.path.join(checkpoint_dir, saver_name)):
                     os.makedirs(os.path.join(checkpoint_dir, saver_name))
-                saver.save(self.sess, os.path.join(checkpoint_dir, saver_name, saver_name),
+                saver.save(self.sess, os.path.join(checkpoint_dir,
+                                                   saver_name,
+                                                   saver_name),
                            global_step=global_step)
 
     def _load(self, checkpoint_dir):
