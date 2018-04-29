@@ -134,6 +134,8 @@ class RNN(object):
                 rnn_layer = tf.contrib.rnn.GRUCell
             elif self._model == 'lstm':
                 rnn_layer = tf.contrib.rnn.BasicLSTMCell
+            else:
+                raise Exception("Invalid cell type: {}".format(self._model))
 
             cells = []
 
@@ -161,7 +163,7 @@ class RNN(object):
             weight, bias = self._weight_and_bias(
                 self._num_units, self._ndims * self._num_timesteps)
             # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
-            y_hat = tf.matmul(outputs[-1], weight) + bias
+            y_hat = tf.nn.sigmoid(tf.matmul(outputs[-1], weight) + bias)
 
         return y_hat
 
@@ -316,10 +318,10 @@ class RNN(object):
 
         """
         # Index of the lowest note on the piano roll
-        lowest_note = 24
+        # lowest_note = 24
 
         # Index of the highest note on the piano roll
-        highest_note = 102
+        # highest_note = 102
 
         # # Note range
         # note_range = highest_note - lowest_note

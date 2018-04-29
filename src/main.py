@@ -67,30 +67,14 @@ def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
     g_iters = 1
 
     # Define dropout parameters
-    input_keep_prob = 1.0
-    output_keep_prob = 0.85
+    # input_keep_prob = 1.0
+    # output_keep_prob = 0.85
 
     print('batch size: %d, epoch num: %d, learning rate: %f' %
           (batch_size, epochs, learning_rate))
 
-    # Number of timesteps that we will create at a time
-    num_timesteps = 15
-
-    # print("[*] Transform songs...")
-    # for song in tqdm(songs):
-
-    #     # Transform to np.ndarray
-    #     song = np.array(song)
-
-    #     # Transform song so that timesteps can be divided by num_timesteps and batch_size
-    #     song = song[:int(np.floor(
-    #         song.shape[0] / (num_timesteps * batch_size)) * (num_timesteps * batch_size))]
-
-    #     # Transform song to matrix representation
-    #     song = np.reshape(
-    #         song, [song.shape[0] / num_timesteps, song.shape[1] * num_timesteps])
-
-    # seq_length = np.ones(batch_size).astype(np.int32) * 15
+    # Number of timesteps that we will train at a time
+    num_timesteps = 60
 
     print("[*] Start training...")
     for step in tqdm(range(epochs)):
@@ -138,14 +122,8 @@ def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
                                    # model.output_keep_prob_placeholder: float(output_keep_prob),
                                    model.learning_rate_placeholder: learning_rate}
                     )
-                    # model.input_keep_prob: 0.90,
-                    # model.output_keep_prob: 0.90,
-                # print('G_loss: {:.4}'.format(g_loss))
 
-        # if step % 100 == 0:
-        #     print('Iter: {}'.format(step))
-        #     print('D_loss: {:.4}'.format(d_loss))
-        #     print('G_loss: {:.4}'.format(g_loss))
+                # print('G_loss: {:.4}'.format(g_loss))
 
 
 def main(_):
