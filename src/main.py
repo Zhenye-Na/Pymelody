@@ -66,6 +66,10 @@ def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
     # Iterations for generator
     g_iters = 1
 
+    # Define dropout parameters
+    input_keep_prob = 1.0
+    output_keep_prob = 0.85
+
     print('batch size: %d, epoch num: %d, learning rate: %f' %
           (batch_size, epochs, learning_rate))
 
@@ -115,7 +119,7 @@ def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
                 batch_z = np.random.uniform(
                     0, 1, [batch_size, num_timesteps, model._nlatent])
 
-                for k in tqdm(range(d_iters)):
+                for k in range(d_iters):
                     _, d_loss = model.session.run(
                         [model.d_optimizer, model.d_loss],
                         feed_dict={model.x_placeholder: batch_x,
@@ -123,18 +127,20 @@ def train(model, songs, learning_rate=0.0005, batch_size=16, epochs=200):
                                    model.learning_rate_placeholder: learning_rate}
                     )
 
-                print('D_loss: {:.4}\n'.format(d_loss))
+                # print('D_loss: {:.4}'.format(d_loss))
 
-                for j in tqdm(range(g_iters)):
+                for j in range(g_iters):
                     _, g_loss = model.session.run(
                         [model.g_optimizer, model.g_loss],
                         feed_dict={model.z_placeholder: batch_z,
                                    # model.sequence_length_placeholder: seq_length,
+                                   # model.input_keep_prob_placeholder: float(input_keep_prob),
+                                   # model.output_keep_prob_placeholder: float(output_keep_prob),
                                    model.learning_rate_placeholder: learning_rate}
                     )
                     # model.input_keep_prob: 0.90,
                     # model.output_keep_prob: 0.90,
-                print('G_loss: {:.4}\n'.format(g_loss))
+                # print('G_loss: {:.4}'.format(g_loss))
 
         # if step % 100 == 0:
         #     print('Iter: {}'.format(step))
@@ -166,6 +172,7 @@ def main(_):
     songs = get_songs(data_dir)
 
     # Build model
+    print("[*] Building model...")
     model = RNN()
 
     # Train model
@@ -181,8 +188,8 @@ def main(_):
         if not any(sample[i, :]):
             continue
         # Reshape the vector to be time x notes, then save as a midi file
-        new_song = sample[i, :].reshape(num_timesteps, 2 * note_range)
-        noteStateMatrixToMidi(new_song, "generated_chord_{}".format(i))
+        new_song = sample.reshape(-1, 2 * note_range)
+    noteStateMatrixToMidi(new_song, "generated_chord_{}".format(i))
 
 
 if __name__ == '__main__':
