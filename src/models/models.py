@@ -25,7 +25,8 @@ class RNN(object):
             tf.float32, [None, ndims * num_timesteps])
 
         # Input sampling
-        self.z_placeholder = tf.placeholder(tf.float32, [None, num_timesteps, nlatent])
+        self.z_placeholder = tf.placeholder(
+            tf.float32, [None, num_timesteps, nlatent])
 
         # Define RNN hyper-parameters
         self._model = model
@@ -44,8 +45,8 @@ class RNN(object):
         self._bn = bn
 
         # Define dropout wrapper parameters
-        # self.input_keep_prob = tf.placeholder(tf.float32, [])
-        # self.output_keep_prob = tf.placeholder(tf.float32, [])
+        self.input_keep_prob_placeholder = tf.placeholder(tf.float32, [])
+        self.output_keep_prob_placeholder = tf.placeholder(tf.float32, [])
         # self.sequence_length_placeholder = tf.placeholder(tf.int32, [None])
 
         # Build computational graph
@@ -140,10 +141,9 @@ class RNN(object):
             for _ in range(self._num_layers_g):
                 cell = rnn_layer(self._num_units, state_is_tuple=True)
                 if self._dropout:
-                    cell = tf.contrib.rnn.DropoutWrapper(
-                        cell)
-                    # input_keep_prob=self.input_keep_prob,
-                    # output_keep_prob=self.output_keep_prob)
+                    cell = tf.contrib.rnn.DropoutWrapper(cell,
+                                                         input_keep_prob=1.0,
+                                                         output_keep_prob=0.87)
                 cells.append(cell)
             cell = tf.contrib.rnn.MultiRNNCell(cells)
 
@@ -321,11 +321,11 @@ class RNN(object):
         # Index of the highest note on the piano roll
         highest_note = 102
 
-        # Note range
-        note_range = highest_note - lowest_note
+        # # Note range
+        # note_range = highest_note - lowest_note
 
-        # Number of timesteps that we will create at a time
-        num_timesteps = 15
+        # # Number of timesteps that we will create at a time
+        # num_timesteps = 15
 
         sample = self.x_hat.eval(
             session=self.session,
