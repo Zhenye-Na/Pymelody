@@ -7,7 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
-from utils.midi_to_matrix import midiToNoteStateMatrix
+from utils.midi_to_matrix import midiToNoteStateMatrix, noteStateMatrixToMidi
 
 
 def get_songs(path):
@@ -33,22 +33,22 @@ def get_songs(path):
 def merge_songs():
     """Merge all output songs to a single midi file."""
     try:
-        files = glob.glob('generated*.mid*')
+        files = glob.glob('../../output/generated*.mid*')
     except Exception as e:
         raise e
 
     songs = np.zeros((0, 156))
     for f in tqdm(files):
         try:
-            song = np.array(midi_manipulation.midiToNoteStateMatrix(f))
+            song = np.array(midiToNoteStateMatrix(f))
 
             if np.array(song).shape[0] > 10:
                 # songs.append(song)
                 songs = np.concatenate((songs, song))
         except Exception as e:
             raise e
-    print "samlpes merging ..."
-    print np.shape(songs)
+    print("[*] Songs merging ...")
+
     noteStateMatrixToMidi(songs, "final")
 
 
@@ -81,37 +81,3 @@ def convert_midi2mp3(input_dir, output_dir):
         subprocess.call(command, shell=True)
         i += 1
     print('Converting finished! {} files converted.'.format(i))
-
-
-def sample(probs):
-    """Sample.
-
-    Args:
-        probs
-    Returns:
-        a random vector of 0s and 1s sampled from the input vector
-
-    """
-    return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
-
-
-def gibbs_sample(k):
-    """Perform Gibbs sampling."""
-    # Runs a k-step gibbs chain to sample from the probability distribution of the RBM defined by W, bh, bv
-    def gibbs_step(count, k, xk):
-        # Runs a single gibbs step. The visible values are initialized to xk
-        # Propagate the visible values to sample the hidden values
-        hk = sample(tf.sigmoid(tf.matmul(xk, W) + bh))
-
-        # Propagate the hidden values to sample the visible values
-        xk = sample(tf.sigmoid(tf.matmul(hk, tf.transpose(W)) + bv))
-
-        return count + 1, k, xk
-
-    # Run gibbs steps for k iterations
-    ct = tf.constant(0)
-    [_, _, x_sample] = control_flow_ops.while_loop(lambda count, num_iter, *args: count < num_iter,
-                                                   gibbs_step, [ct, tf.constant(k), x])
-
-    x_sample = tf.stop_gradient(x_sample)
-    return x_sample

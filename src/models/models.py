@@ -328,9 +328,7 @@ class RNN_gan(object):
         """Perform Gibbs Sampling.
 
         Args:
-
         Returns:
-
         """
         pass
 
@@ -339,9 +337,7 @@ class RNN_gan(object):
         """Sample from a vector of probabilities.
 
         Args:
-
         Return:
-
 
         """
         return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
@@ -364,20 +360,14 @@ class RNN_rbm(object):
         # Size of the RBM hidden layer
         self.n_hidden = 50
 
-        # Size of each RNN hidden layer
-        self.n_hidden_recurrent = 100
-
         # The placeholder variable that holds our data
         self.x_placeholder = tf.placeholder(tf.float32, [None, self.n_visible])
 
-        # learning rate
-        self.lr = tf.placeholder(tf.float32)
-
-        # the batch size
-        self.size_bt = tf.shape(self.x_placeholder)[0]
-
         # Learning rate
         self.learning_rate_placeholder = tf.placeholder(tf.float32, [])
+
+        self._build_rbm()
+        self.update_tensor = self._update_step()
 
         # Create session
         self.session = tf.InteractiveSession()
@@ -392,7 +382,7 @@ class RNN_rbm(object):
         self.bv = tf.Variable(
             tf.zeros([1, self.n_visible], tf.float32, name="bv"))
 
-    def _build_rbm2(self):
+    def _build_rnn_rbm(self):
         """Define variables for building RBM."""
         self.W = tf.Variable(
             tf.zeros([self.n_visible, self.n_hidden]), name="W")
@@ -417,23 +407,30 @@ class RNN_rbm(object):
     def _update_step(self):
         # The sample of x
         x_sample = self._gibbs_sample(1)
-        # The sample of the hidden nodes, starting from the visible state of x
-        h = self._sample(tf.sigmoid(tf.matmul(self.x, self.W) + self.bh))
-        # The sample of the hidden nodes, starting from the visible state of x_sample
+
+        # Hidden nodes, starting from the visible state of x
+        h = self._sample(tf.sigmoid(
+            tf.matmul(self.x_placeholder, self.W) + self.bh))
+
+        # Hidden nodes, starting from the visible state of x_sample
         h_sample = self._sample(tf.sigmoid(
             tf.matmul(x_sample, self.W) + self.bh))
 
-        # Next, we update the values of W, bh, and bv, based on the difference between the samples that we drew and the original values
-        size_bt = tf.cast(tf.shape(self.x_placeholder)[0], tf.float32)
-        W_adder = tf.multiply(self.learning_rate_placeholder / size_bt, tf.subtract(tf.matmul(
-            tf.transpose(self.x_placeholder), h), tf.matmul(tf.transpose(x_sample), h_sample)))
-        bv_adder = tf.multiply(
-            self.learning_rate_placeholder / size_bt, tf.reduce_sum(tf.subtract(self.x_placeholder, x_sample), 0, True))
-        bh_adder = tf.multiply(
-            self.learning_rate_placeholder / size_bt, tf.reduce_sum(tf.subtract(h, h_sample), 0, True))
-        # When we do sess.run(updt), TensorFlow will run all 3 update steps
-        update_tensor = [self.W.assign_add(W_adder), self.bv.assign_add(
-            bv_adder), self.bh.assign_add(bh_adder)]
+        # Update
+        self.size_bt = tf.cast(tf.shape(self.x_placeholder)[0], tf.float32)
+        self.W_adder = tf.multiply(self.learning_rate_placeholder / self.size_bt, tf.subtract(
+            tf.matmul(tf.transpose(self.x_placeholder), h),
+            tf.matmul(tf.transpose(x_sample), h_sample)))
+        self.bv_adder = tf.multiply(self.learning_rate_placeholder / self.size_bt,
+                                    tf.reduce_sum(tf.subtract(
+                                        self.x_placeholder, x_sample), 0, True))
+        self.bh_adder = tf.multiply(self.learning_rate_placeholder /
+                                    self.size_bt, tf.reduce_sum(tf.subtract(
+                                        h, h_sample), 0, True))
+
+        # Variables need update
+        update_tensor = [self.W.assign_add(self.W_adder), self.bv.assign_add(
+            self.bv_adder), self.bh.assign_add(self.bh_adder)]
 
         return update_tensor
 
@@ -445,22 +442,19 @@ class RNN_rbm(object):
         Returns:
 
         """
-        def gibbs_step(count, k, xk):
-
-            hk = self._sample(tf.sigmoid(tf.matmul(xk, self.W) + self.bh))
-            xk = self._sample(tf.sigmoid(
-                tf.matmul(hk, tf.transpose(self.W)) + self.bv))
-
-            return count + 1, k, xk
-
-        # Run gibbs steps for k iterations
-        ct = tf.constant(0)  # counter
-        [_, _, x_sample] = control_flow_ops.while_loop(lambda count, num_iter, *args: count < num_iter,
-                                                       gibbs_step,
-                                                       [ct, tf.constant(k), self.x_placeholder])
+        hk = self._sample(tf.sigmoid(tf.matmul(self.x_placeholder, self.W) + self.bh))
+        x_sample = self._sample(tf.sigmoid(tf.matmul(hk, tf.transpose(self.W)) + self.bv))
 
         x_sample = tf.stop_gradient(x_sample)
         return x_sample
+
+    # def _gibbs_step(self, xk):
+    #     """Sampling step."""
+    #     hk = self._sample(tf.sigmoid(tf.matmul(xk, self.W) + self.bh))
+    #     xk = self._sample(tf.sigmoid(
+    #         tf.matmul(hk, tf.transpose(self.W)) + self.bv))
+    #     print("gibbs_step")
+    #     return xk
 
     @staticmethod
     def _sample(probs):
@@ -470,8 +464,5 @@ class RNN_rbm(object):
 
         Return:
 
-
         """
-        # Takes in a vector of probabilities, and returns a random vector of 0s
-        # and 1s sampled from the input vector
         return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
