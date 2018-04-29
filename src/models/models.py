@@ -4,8 +4,9 @@ import re
 import os
 import numpy as np
 import tensorflow as tf
-from utils.midi_to_matrix import noteStateMatrixToMidi
 from tensorflow.contrib import layers
+from tensorflow.python.ops import control_flow_ops
+from utils.midi_to_matrix import noteStateMatrixToMidi
 
 
 class RNN_gan(object):
@@ -104,11 +105,11 @@ class RNN_gan(object):
         # Label smoothing
         # smooth = 0.1
 
-        # create labels for discriminator
+        # Create labels for discriminator
         d_labels_real = tf.ones_like(y)
         d_labels_fake = tf.zeros_like(y_hat)
 
-        # compute loss for real/fake songs
+        # Compute loss for real/fake songs
         d_loss_real = tf.nn.sigmoid_cross_entropy_with_logits(
             logits=y, labels=d_labels_real)
         d_loss_fake = tf.nn.sigmoid_cross_entropy_with_logits(
@@ -150,19 +151,21 @@ class RNN_gan(object):
             cell = tf.contrib.rnn.MultiRNNCell(cells)
 
             # Perform fully dynamic unrolling of inputs
-            outputs, _ = tf.nn.dynamic_rnn(cell=cell,
-                                           inputs=z,
-                                           dtype=tf.float32)
+            outputs, final_state = tf.nn.dynamic_rnn(cell=cell,
+                                                     inputs=z,
+                                                     dtype=tf.float32)
 
             # Swap the axis of 0 and 1
-            # outputs = tf.transpose(outputs, [1, 0, 2])
             outputs = tf.unstack(tf.transpose(outputs, [1, 0, 2]))
-            # last = tf.gather(outputs, int(outputs.get_shape()[0]) - 1)
+
+            # ------------------------------------------------ #
+            # Future work! Use hidden state to compose music!!!
+            # ------------------------------------------------ #
 
             # Output layer.
             weight, bias = self._weight_and_bias(
                 self._num_units, self._ndims * self._num_timesteps)
-            # logits = tf.nn.softmax(tf.matmul(last, weight) + bias)
+
             y_hat = tf.nn.sigmoid(tf.matmul(outputs[-1], weight) + bias)
 
         return y_hat
@@ -279,7 +282,7 @@ class RNN_gan(object):
 
 
         """
-        print(" [*] Reading checkpoints...")
+        print("[*] Reading checkpoints...")
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
@@ -289,10 +292,10 @@ class RNN_gan(object):
                 checkpoint_dir, ckpt_name))
             counter = int(
                 next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
-            print(" [*] Success to read {}".format(ckpt_name))
+            print("[*] Success to read {}".format(ckpt_name))
             return True, counter
         else:
-            print(" [*] Failed to find a checkpoint")
+            print("[*] Failed to find a checkpoint")
             return False, 0
 
     @staticmethod
@@ -348,120 +351,201 @@ class RNN_gan(object):
         return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
 
 
-# class RNN_rbm(object):
-#     """Implement rnn_rbm in tf."""
+class RNN_rbm(object):
+    """Implement rnn_rbm in tf."""
 
-#     def __init__(self):
-#         """Build the RNN-RBM."""
-#         # The range of notes that we can produce
-#         self.note_range = 156
+    def __init__(self):
+        """Build the RNN-RBM."""
+        # range of notes
+        self.note_range = 78
 
-#         # The size of each data vector and the size of the RBM visible layer
-#         self.n_visible = 156 * 60
+        # timesteps
+        self.num_timesteps = 15
 
-#         # The size of the RBM hidden layer
-#         self.n_hidden = 50
+        # Size of each data vector and the size of the RBM visible layer
+        self.n_visible = 2 * self.note_range * self.num_timesteps
 
-#         # The size of each RNN hidden layer
-#         self.n_hidden_recurrent = 100
+        # Size of the RBM hidden layer
+        self.n_hidden = 50
 
-#         # The placeholder variable that holds our data
-#         self.x = tf.placeholder(tf.float32, [None, self.n_visible])
+        # Size of each RNN hidden layer
+        self.n_hidden_recurrent = 100
 
-#         # learning rate
-#         self.lr = tf.placeholder(tf.float32)
+        # The placeholder variable that holds our data
+        self.x = tf.placeholder(tf.float32, [None, self.n_visible])
 
-#         # the batch size
-#         self.size_bt = tf.shape(self.x)[0]
+        # learning rate
+        self.lr = tf.placeholder(tf.float32)
 
-#         # Define variables
-#         self.W = tf.Variable(
-#             tf.zeros([self.n_visible, self.n_hidden]), name="W")
-#         self.Wuh = tf.Variable(
-#             tf.zeros([self.n_hidden_recurrent, self.n_hidden]), name="Wuh")
-#         self.Wuv = tf.Variable(
-#             tf.zeros([self.n_hidden_recurrent, self.n_visible]), name="Wuv")
-#         self.Wvu = tf.Variable(
-#             tf.zeros([self.n_visible, self.n_hidden_recurrent]), name="Wvu")
-#         self.Wuu = tf.Variable(
-#             tf.zeros([self.n_hidden_recurrent, self.n_hidden_recurrent]), name="Wuu")
-#         self.bh = tf.Variable(tf.zeros([1, self.n_hidden]), name="bh")
-#         self.bv = tf.Variable(tf.zeros([1, self.n_visible]), name="bv")
-#         self.bu = tf.Variable(
-#             tf.zeros([1, self.n_hidden_recurrent]), name="bu")
-#         self.u0 = tf.Variable(
-#             tf.zeros([1, self.n_hidden_recurrent]), name="u0")
-#         self.BH_t = tf.Variable(tf.zeros([1, self.n_hidden]), name="BH_t")
-#         self.BV_t = tf.Variable(tf.zeros([1, self.n_visible]), name="BV_t")
+        # the batch size
+        self.size_bt = tf.shape(self.x)[0]
 
-#     def _rnn_recurrence(self, u_tm1, sl):
-#         # Iterate through the data in the batch and generate the values of the RNN hidden nodes
-#         sl = tf.reshape(sl, [1, self.n_visible])
-#         u_t = (tf.tanh(self.bu + tf.matmul(sl, self.Wvu) +
-#                        tf.matmul(u_tm1, self.Wuu)))
-#         return u_t
+        # Learning rate
+        self.learning_rate_placeholder = tf.placeholder(tf.float32, [])
 
-#     def _visible_bias_recurrence(self, bv_t, u_tm1):
-#         # Iterate through the values of the RNN hidden nodes and generate the values of the visible bias vectors
-#         bv_t = tf.add(self.bv, tf.matmul(u_tm1, self.Wuv))
-#         return bv_t
+        # Create session
+        self.session = tf.InteractiveSession()
+        self.session.run(tf.global_variables_initializer())
 
-#     def _hidden_bias_recurrence(self, bh_t, u_tm1):
-#         """bla."""
-#         # Iterate through the values of the RNN hidden nodes and generate the values of the hidden bias vectors
-#         bh_t = tf.add(self.bh, tf.matmul(u_tm1, self.Wuh))
-#         return bh_t
+    def _build_rbm(self):
+        """Define variables for building RBM."""
+        self.W = tf.Variable(tf.random_normal(
+            [self.n_visible, self.n_hidden], 0.01), name="W")
+        self.bh = tf.Variable(
+            tf.zeros([1, self.n_hidden], tf.float32, name="bh"))
+        self.bv = tf.Variable(
+            tf.zeros([1, self.n_visible], tf.float32, name="bv"))
 
-#     def _generate_recurrence(self, count, k, u_tm1, primer, x, music):
-#         # This function builds and runs the gibbs steps for each RBM in the chain to generate music
-#         # Get the bias vectors from the current state of the RNN
-#         bv_t = tf.add(self.bv, tf.matmul(u_tm1, self.Wuv))
-#         bh_t = tf.add(self.bh, tf.matmul(u_tm1, self.Wuh))
+    def _build_rbm2(self):
+        """Define variables for building RBM."""
+        self.W = tf.Variable(
+            tf.zeros([self.n_visible, self.n_hidden]), name="W")
+        self.Wuh = tf.Variable(
+            tf.zeros([self.n_hidden_recurrent, self.n_hidden]), name="Wuh")
+        self.Wuv = tf.Variable(
+            tf.zeros([self.n_hidden_recurrent, self.n_visible]), name="Wuv")
+        self.Wvu = tf.Variable(
+            tf.zeros([self.n_visible, self.n_hidden_recurrent]), name="Wvu")
+        self.Wuu = tf.Variable(
+            tf.zeros([self.n_hidden_recurrent, self.n_hidden_recurrent]),
+            name="Wuu")
+        self.bh = tf.Variable(tf.zeros([1, self.n_hidden]), name="bh")
+        self.bv = tf.Variable(tf.zeros([1, self.n_visible]), name="bv")
+        self.bu = tf.Variable(
+            tf.zeros([1, self.n_hidden_recurrent]), name="bu")
+        self.u0 = tf.Variable(
+            tf.zeros([1, self.n_hidden_recurrent]), name="u0")
+        self.BH_t = tf.Variable(tf.zeros([1, self.n_hidden]), name="BH_t")
+        self.BV_t = tf.Variable(tf.zeros([1, self.n_visible]), name="BV_t")
 
-#         # Run the Gibbs step to get the music output. Prime the RBM with the previous musical output.
-#         x_out = RBM.gibbs_sample(primer, W, bv_t, bh_t, k=25)
+    def _update_step(self):
+        # The sample of x
+        x_sample = self._gibbs_sample(1)
+        # The sample of the hidden nodes, starting from the visible state of x
+        h = self._sample(tf.sigmoid(tf.matmul(self.x, self.W) + self.bh))
+        # The sample of the hidden nodes, starting from the visible state of x_sample
+        h_sample = self._sample(tf.sigmoid(
+            tf.matmul(x_sample, self.W) + self.bh))
 
-#         # Update the RNN hidden state based on the musical output and current hidden state.
-#         u_t = (tf.tanh(self.bu + tf.matmul(x_out, self.Wvu) +
-#                        tf.matmul(u_tm1, self.Wuu)))
+        # Next, we update the values of W, bh, and bv, based on the difference between the samples that we drew and the original values
+        size_bt = tf.cast(tf.shape(self.x)[0], tf.float32)
+        W_adder = tf.multiply(self.learning_rate_placeholder / size_bt, tf.subtract(tf.matmul(tf.transpose(x), h), tf.matmul(tf.transpose(x_sample), h_sample)))
+        bv_adder = tf.multiply(
+            self.learning_rate_placeholder / size_bt, tf.reduce_sum(tf.subtract(x, x_sample), 0, True))
+        bh_adder = tf.multiply(
+            self.learning_rate_placeholder / size_bt, tf.reduce_sum(tf.subtract(h, h_sample), 0, True))
+        # When we do sess.run(updt), TensorFlow will run all 3 update steps
+        updt = [self.W.assign_add(W_adder), self.bv.assign_add(bv_adder), self.bh.assign_add(bh_adder)]
 
-#         # Add the new output to the musical piece
-#         music = tf.concat(0, [music, x_out])
-#         return count + 1, k, u_t, x_out, x, music
+        return updt
 
-#     def _generate(self, num, x=x, size_bt=size_bt, u0=u0, n_visible=n_visible, prime_length=100):
-#         """
-#             This function handles generating music. This function is one of the outputs of the build_rnnrbm function
-#             Args:
-#                 num (int): The number of timesteps to generate
-#                 x (tf.placeholder): The data vector. We can use feed_dict to set this to the music primer. 
-#                 size_bt (tf.float32): The batch size
-#                 u0 (tf.Variable): The initial state of the RNN
-#                 n_visible (int): The size of the data vectors
-#                 prime_length (int): The number of timesteps into the primer song that we use befoe beginning to generate music
-#             Returns:
-#                 The generated music, as a tf.Tensor
-#         """
-#         Uarr = tf.scan(rnn_recurrence, x, initializer=u0)
-#         U = Uarr[np.floor(
-#             prime_length / midi_manipulation.num_timesteps), :, :]
-#         [_, _, _, _, _, music] = control_flow_ops.While(lambda count, num_iter, *args: count < num_iter,
-#                                                         generate_recurrence, [tf.constant(1, tf.int32), tf.constant(num), U,
-#                                                                               tf.zeros(
-#                                                                                   [1, n_visible], tf.float32), x,
-#                                                                               tf.zeros([1, n_visible],  tf.float32)])
-#         return music
+    def _gibbs_sample(self, k):
+        """Perform Gibbs Sampling.
 
-#     # # Reshape our bias matrices to be the same size as the batch.
-#     # tf.assign(BH_t, tf.tile(BH_t, [size_bt, 1]))
-#     # tf.assign(BV_t, tf.tile(BV_t, [size_bt, 1]))
-#     # # Scan through the rnn and generate the value for each hidden node in the batch
-#     # u_t = tf.scan(rnn_recurrence, x, initializer=u0)
-#     # # Scan through the rnn and generate the visible and hidden biases for each RBM in the batch
-#     # BV_t = tf.reshape(tf.scan(visible_bias_recurrence, u_t, tf.zeros(
-#     #     [1, n_visible], tf.float32)), [size_bt, n_visible])
-#     # BH_t = tf.reshape(tf.scan(hidden_bias_recurrence, u_t, tf.zeros(
-#     #     [1, n_hidden], tf.float32)), [size_bt, n_hidden])
-#     # # Get the free energy cost from each of the RBMs in the batch
-#     # cost = RBM.get_free_energy_cost(x, W, BV_t, BH_t, k=15)
-#     # return x, cost, generate, W, bh, bv, x, lr, Wuh, Wuv, Wvu, Wuu, bu, u0
+        Args:
+
+        Returns:
+
+        """
+        def gibbs_step(count, k, xk):
+
+            hk = self._sample(tf.sigmoid(tf.matmul(xk, self.W) + self.bh))
+            xk = self._sample(tf.sigmoid(
+                tf.matmul(hk, tf.transpose(self.W)) + self.bv))
+
+            return count + 1, k, xk
+
+        # Run gibbs steps for k iterations
+        ct = tf.constant(0)  # counter
+        [_, _, x_sample] = control_flow_ops.while_loop(lambda count, num_iter, *args: count < num_iter,
+                                                       gibbs_step,
+                                                       [ct, tf.constant(k), self.x])
+
+        x_sample = tf.stop_gradient(x_sample)
+        return x_sample
+
+    @staticmethod
+    def _sample(probs):
+        """Sample from a vector of probabilities.
+
+        Args:
+
+        Return:
+
+
+        """
+        # Takes in a vector of probabilities, and returns a random vector of 0s
+        # and 1s sampled from the input vector
+        return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
+
+    # def _rnn_recurrence(self, u_tm1, sl):
+    #     # Iterate through the data in the batch and generate the values of the RNN hidden nodes
+    #     sl = tf.reshape(sl, [1, self.n_visible])
+    #     u_t = (tf.tanh(self.bu + tf.matmul(sl, self.Wvu) +
+    #                    tf.matmul(u_tm1, self.Wuu)))
+    #     return u_t
+
+    # def _visible_bias_recurrence(self, bv_t, u_tm1):
+    #     # Iterate through the values of the RNN hidden nodes and generate the values of the visible bias vectors
+    #     bv_t = tf.add(self.bv, tf.matmul(u_tm1, self.Wuv))
+    #     return bv_t
+
+    # def _hidden_bias_recurrence(self, bh_t, u_tm1):
+    #     """bla."""
+    #     # Iterate through the values of the RNN hidden nodes and generate the values of the hidden bias vectors
+    #     bh_t = tf.add(self.bh, tf.matmul(u_tm1, self.Wuh))
+    #     return bh_t
+
+    # def _generate_recurrence(self, count, k, u_tm1, primer, x, music):
+    #     # This function builds and runs the gibbs steps for each RBM in the chain to generate music
+    #     # Get the bias vectors from the current state of the RNN
+    #     bv_t = tf.add(self.bv, tf.matmul(u_tm1, self.Wuv))
+    #     bh_t = tf.add(self.bh, tf.matmul(u_tm1, self.Wuh))
+
+    #     # Run the Gibbs step to get the music output. Prime the RBM with the previous musical output.
+    #     x_out = RBM.gibbs_sample(primer, W, bv_t, bh_t, k=25)
+
+    #     # Update the RNN hidden state based on the musical output and current hidden state.
+    #     u_t = (tf.tanh(self.bu + tf.matmul(x_out, self.Wvu) +
+    #                    tf.matmul(u_tm1, self.Wuu)))
+
+    #     # Add the new output to the musical piece
+    #     music = tf.concat(0, [music, x_out])
+    #     return count + 1, k, u_t, x_out, x, music
+
+    # def _generate(self, num, x=x, size_bt=size_bt, u0=u0, n_visible=n_visible, prime_length=100):
+    #     """
+    #         This function handles generating music. This function is one of the outputs of the build_rnnrbm function
+    #         Args:
+    #             num (int): The number of timesteps to generate
+    #             x (tf.placeholder): The data vector. We can use feed_dict to set this to the music primer.
+    #             size_bt (tf.float32): The batch size
+    #             u0 (tf.Variable): The initial state of the RNN
+    #             n_visible (int): The size of the data vectors
+    #             prime_length (int): The number of timesteps into the primer song that we use befoe beginning to generate music
+    #         Returns:
+    #             The generated music, as a tf.Tensor
+    #     """
+    #     Uarr = tf.scan(rnn_recurrence, x, initializer=u0)
+    #     U = Uarr[np.floor(
+    #         prime_length / midi_manipulation.num_timesteps), :, :]
+    #     [_, _, _, _, _, music] = control_flow_ops.While(lambda count, num_iter, *args: count < num_iter,
+    #                                                     generate_recurrence, [tf.constant(1, tf.int32), tf.constant(num), U,
+    #                                                                           tf.zeros(
+    #                                                                               [1, n_visible], tf.float32), x,
+    #                                                                           tf.zeros([1, n_visible],  tf.float32)])
+    #     return music
+    #
+    # # Reshape our bias matrices to be the same size as the batch.
+    # tf.assign(BH_t, tf.tile(BH_t, [size_bt, 1]))
+    # tf.assign(BV_t, tf.tile(BV_t, [size_bt, 1]))
+    # # Scan through the rnn and generate the value for each hidden node in the batch
+    # u_t = tf.scan(rnn_recurrence, x, initializer=u0)
+    # # Scan through the rnn and generate the visible and hidden biases for each RBM in the batch
+    # BV_t = tf.reshape(tf.scan(visible_bias_recurrence, u_t, tf.zeros(
+    #     [1, n_visible], tf.float32)), [size_bt, n_visible])
+    # BH_t = tf.reshape(tf.scan(hidden_bias_recurrence, u_t, tf.zeros(
+    #     [1, n_hidden], tf.float32)), [size_bt, n_hidden])
+    # # Get the free energy cost from each of the RBMs in the batch
+    # cost = RBM.get_free_energy_cost(x, W, BV_t, BH_t, k=15)
+    # return x, cost, generate, W, bh, bv, x, lr, Wuh, Wuv, Wvu, Wuu, bu, u0
