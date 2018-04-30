@@ -190,6 +190,7 @@ def main(_):
     train(model, songs)
 
     # Sample music
+    print("[*] Generating new songs")
     sample = model._gibbs_sample(1).eval(session=model.session,
                                          feed_dict={model.x_placeholder: np.zeros((50, model.n_visible))})
 

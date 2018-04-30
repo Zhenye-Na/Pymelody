@@ -33,21 +33,23 @@ def get_songs(path):
 def merge_songs():
     """Merge all output songs to a single midi file."""
     try:
-        files = glob.glob('../../output/generated*.mid*')
+        # files = glob.glob('../../output/generated*.mid*')
+        files = glob.glob('{}/*.mid*'.format("../output"))
     except Exception as e:
         raise e
 
     songs = np.zeros((0, 156))
+    print("[*] Songs merging ...")
+
     for f in tqdm(files):
         try:
             song = np.array(midiToNoteStateMatrix(f))
 
             if np.array(song).shape[0] > 10:
-                # songs.append(song)
+
                 songs = np.concatenate((songs, song))
         except Exception as e:
             raise e
-    print("[*] Songs merging ...")
 
     noteStateMatrixToMidi(songs, "final")
 
