@@ -1,1 +1,1 @@
-# museRNN
+# Pymuse
